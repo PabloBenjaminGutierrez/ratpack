@@ -39,13 +39,12 @@ public class JmxReporterProvider implements Provider<JmxReporter> {
   @Override
   public JmxReporter get() {
     JmxReporter.Builder builder = JmxReporter.forRegistry(metricRegistry);
-    config.getConsole().ifPresent(jmx -> {
-      if (jmx.getFilter() != null) {
-        builder.filter(new RegexMetricFilter(jmx.getFilter()));
+    config.getJmx().ifPresent(jmx -> {
+      if (jmx.getIncludeFilter() != null || jmx.getExcludeFilter() != null) {
+        builder.filter(new RegexMetricFilter(jmx.getIncludeFilter(), jmx.getExcludeFilter()));
       }
     });
 
     return builder.build();
   }
 }
-

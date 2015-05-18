@@ -18,7 +18,6 @@ package ratpack.guice.internal;
 
 import com.google.inject.Binder;
 import com.google.inject.Module;
-import com.google.inject.Provider;
 import ratpack.func.Action;
 import ratpack.guice.BindingsSpec;
 import ratpack.guice.ConfigurableModule;
@@ -43,45 +42,13 @@ public class DefaultBindingsSpec implements BindingsSpec {
   }
 
   @Override
-  public BindingsSpec bind(final Class<?> type) {
-    return binder(binder -> binder.bind(type));
-  }
-
-  @Override
-  public <T> BindingsSpec bind(final Class<T> publicType, final Class<? extends T> implType) {
-    return binder(binder -> binder.bind(publicType).to(implType));
-  }
-
-  @Override
-  public <T> BindingsSpec bindInstance(final Class<? super T> publicType, final T instance) {
-    return binder(binder -> binder.bind(publicType).toInstance(instance));
-  }
-
-  @Override
-  public <T> BindingsSpec bindInstance(final T instance) {
-    @SuppressWarnings("unchecked") final
-    Class<T> type = (Class<T>) instance.getClass();
-    return binder(binder -> binder.bind(type).toInstance(instance));
-  }
-
-  @Override
-  public <T> BindingsSpec providerType(final Class<T> publicType, final Class<? extends Provider<? extends T>> providerType) {
-    return binder(binder -> binder.bind(publicType).toProvider(providerType));
-  }
-
-  @Override
-  public <T> BindingsSpec provider(Class<T> publicType, Provider<? extends T> provider) {
-    return binder(b -> b.bind(publicType).toProvider(provider));
-  }
-
-  @Override
-  public BindingsSpec add(Module module) {
+  public BindingsSpec module(Module module) {
     this.modules.add(module);
     return this;
   }
 
-  public BindingsSpec add(Class<? extends Module> moduleClass) {
-    return add(createModule(moduleClass));
+  public BindingsSpec module(Class<? extends Module> moduleClass) {
+    return module(createModule(moduleClass));
   }
 
   private <T extends Module> T createModule(Class<T> clazz) {
@@ -93,28 +60,27 @@ public class DefaultBindingsSpec implements BindingsSpec {
   }
 
   @Override
-  public <C> BindingsSpec add(ConfigurableModule<C> module, Action<? super C> configurer) {
+  public <C> BindingsSpec module(ConfigurableModule<C> module, Action<? super C> configurer) {
     module.configure(configurer);
-    this.modules.add(module);
-    return this;
+    return module(module);
   }
 
   @Override
-  public <C, T extends ConfigurableModule<C>> BindingsSpec add(Class<T> moduleClass, Action<? super C> configurer) {
+  public <C, T extends ConfigurableModule<C>> BindingsSpec module(Class<T> moduleClass, Action<? super C> configurer) {
     T t = createModule(moduleClass);
-    return add(t, configurer);
+    return module(t, configurer);
   }
 
   @Override
-  public <C> BindingsSpec addConfig(ConfigurableModule<C> module, C config, Action<? super C> configurer) {
+  public <C> BindingsSpec moduleConfig(ConfigurableModule<C> module, C config, Action<? super C> configurer) {
     module.setConfig(config);
-    return add(module, configurer);
+    return module(module, configurer);
   }
 
   @Override
-  public <C, T extends ConfigurableModule<C>> BindingsSpec addConfig(Class<T> moduleClass, C config, Action<? super C> configurer) {
+  public <C, T extends ConfigurableModule<C>> BindingsSpec moduleConfig(Class<T> moduleClass, C config, Action<? super C> configurer) {
     T t = createModule(moduleClass);
-    return addConfig(t, config, configurer);
+    return moduleConfig(t, config, configurer);
   }
 
   @Override

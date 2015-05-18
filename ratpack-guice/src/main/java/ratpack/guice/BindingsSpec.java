@@ -20,11 +20,15 @@ import com.google.common.reflect.TypeToken;
 import com.google.inject.Binder;
 import com.google.inject.Module;
 import com.google.inject.Provider;
+import com.google.inject.TypeLiteral;
 import com.google.inject.multibindings.Multibinder;
 import ratpack.func.Action;
 import ratpack.guice.internal.GuiceUtil;
+import ratpack.registry.RegistrySpec;
 import ratpack.server.ServerConfig;
 import ratpack.util.Types;
+
+import java.util.function.Supplier;
 
 import static ratpack.util.Exceptions.uncheck;
 
@@ -44,7 +48,7 @@ import static ratpack.util.Exceptions.uncheck;
  * Bindings added via the {@code bind()} and {@code provider()} methods always have the highest precedence, regardless of order.
  * That is, non module bindings can always override module bindings regardless of whether the module is added before or after the non module binding.
  */
-public interface BindingsSpec {
+public interface BindingsSpec extends RegistrySpec {
 
   /**
    * The launch config for the application.
@@ -59,7 +63,7 @@ public interface BindingsSpec {
    * @param module module whose bindings should be added
    * @return this
    */
-  BindingsSpec add(Module module);
+  BindingsSpec module(Module module);
 
   /**
    * Adds the bindings from the given module.
@@ -68,7 +72,7 @@ public interface BindingsSpec {
    * @return this
    */
   @SuppressWarnings("unchecked")
-  BindingsSpec add(Class<? extends Module> moduleClass);
+  BindingsSpec module(Class<? extends Module> moduleClass);
 
   /**
    * Adds the bindings from the given configurable module.
@@ -79,7 +83,7 @@ public interface BindingsSpec {
    * @param <T> the type of the module
    * @return this
    */
-  <C, T extends ConfigurableModule<C>> BindingsSpec add(Class<T> moduleClass, Action<? super C> configurer);
+  <C, T extends ConfigurableModule<C>> BindingsSpec module(Class<T> moduleClass, Action<? super C> configurer);
 
   /**
    * Adds the bindings from the given configurable module.
@@ -89,7 +93,7 @@ public interface BindingsSpec {
    * @param <C> the type of the module's config object
    * @return this
    */
-  <C> BindingsSpec add(ConfigurableModule<C> module, Action<? super C> configurer);
+  <C> BindingsSpec module(ConfigurableModule<C> module, Action<? super C> configurer);
 
   /**
    * Adds the bindings from the given configurable module.
@@ -101,10 +105,10 @@ public interface BindingsSpec {
    * @param <T> the type of the module
    * @return this
    */
-  <C, T extends ConfigurableModule<C>> BindingsSpec addConfig(Class<T> moduleClass, C config, Action<? super C> configurer);
+  <C, T extends ConfigurableModule<C>> BindingsSpec moduleConfig(Class<T> moduleClass, C config, Action<? super C> configurer);
 
-  default <C, T extends ConfigurableModule<C>> BindingsSpec addConfig(Class<T> moduleClass, C config) {
-    return addConfig(moduleClass, config, Action.noop());
+  default <C, T extends ConfigurableModule<C>> BindingsSpec moduleConfig(Class<T> moduleClass, C config) {
+    return moduleConfig(moduleClass, config, Action.noop());
   }
 
   /**
@@ -116,10 +120,10 @@ public interface BindingsSpec {
    * @param <C> the type of the module's config object
    * @return this
    */
-  <C> BindingsSpec addConfig(ConfigurableModule<C> module, C config, Action<? super C> configurer);
+  <C> BindingsSpec moduleConfig(ConfigurableModule<C> module, C config, Action<? super C> configurer);
 
-  default <C, T extends ConfigurableModule<C>> BindingsSpec addConfig(T moduleClass, C config) {
-    return addConfig(moduleClass, config, Action.noop());
+  default <C, T extends ConfigurableModule<C>> BindingsSpec moduleConfig(T moduleClass, C config) {
+    return moduleConfig(moduleClass, config, Action.noop());
   }
 
   /**
@@ -134,6 +138,10 @@ public interface BindingsSpec {
     return binder(b -> action.execute(Multibinder.newSetBinder(b, GuiceUtil.toTypeLiteral(type))));
   }
 
+  default <T> BindingsSpec multiBinder(TypeLiteral<T> type, Action<? super Multibinder<T>> action) throws Exception {
+    return multiBinder(GuiceUtil.toTypeToken(type), action);
+  }
+
   default <T> BindingsSpec multiBinder(Class<T> type, Action<? super Multibinder<T>> action) throws Exception {
     return multiBinder(TypeToken.of(type), action);
   }
@@ -144,7 +152,9 @@ public interface BindingsSpec {
    * @param type the type to add a binding for
    * @return this
    */
-  BindingsSpec bind(Class<?> type);
+  default BindingsSpec bind(Class<?> type) {
+    return binder(binder -> binder.bind(type));
+  }
 
   default <T> BindingsSpec multiBind(Class<T> type) {
     return uncheck(() -> multiBinder(type, b -> b.addBinding().to(type)));
@@ -158,10 +168,28 @@ public interface BindingsSpec {
    * @param <T> the public type of the binding
    * @return this
    */
-  <T> BindingsSpec bind(Class<T> publicType, Class<? extends T> implType);
+  default <T> BindingsSpec bind(Class<T> publicType, Class<? extends T> implType) {
+    return bind(TypeLiteral.get(publicType), implType);
+  }
+
+  default <T> BindingsSpec bind(TypeToken<T> publicType, Class<? extends T> implType) {
+    return bind(GuiceUtil.toTypeLiteral(publicType), implType);
+  }
+
+  default <T> BindingsSpec bind(TypeLiteral<T> publicType, Class<? extends T> implType) {
+    return binder(binder -> binder.bind(publicType).to(implType));
+  }
+
+  default <T> BindingsSpec multiBind(TypeLiteral<T> publicType, Class<? extends T> implType) {
+    return uncheck(() -> multiBinder(publicType, b -> b.addBinding().to(implType)));
+  }
 
   default <T> BindingsSpec multiBind(Class<T> publicType, Class<? extends T> implType) {
-    return uncheck(() -> multiBinder(publicType, b -> b.addBinding().to(implType)));
+    return multiBind(TypeLiteral.get(publicType), implType);
+  }
+
+  default <T> BindingsSpec multiBind(TypeToken<T> publicType, Class<? extends T> implType) {
+    return multiBind(GuiceUtil.toTypeLiteral(publicType), implType);
   }
 
   /**
@@ -172,10 +200,16 @@ public interface BindingsSpec {
    * @param <T> the public type of the binding
    * @return this
    */
-  <T> BindingsSpec bindInstance(Class<? super T> publicType, T instance);
+  default <T> BindingsSpec bindInstance(TypeLiteral<? super T> publicType, T instance) {
+    return binder(b -> b.bind(publicType).toInstance(instance));
+  }
 
-  default <T> BindingsSpec multiBindInstance(Class<T> publicType, T instance) {
-    return uncheck(() -> multiBinder(publicType, b -> b.addBinding().toInstance(instance)));
+  default <T> BindingsSpec bindInstance(TypeToken<? super T> publicType, T instance) {
+    return bindInstance(GuiceUtil.toTypeLiteral(publicType), instance);
+  }
+
+  default <T> BindingsSpec bindInstance(Class<? super T> publicType, T instance) {
+    return bindInstance(TypeLiteral.get(publicType), instance);
   }
 
   /**
@@ -185,13 +219,32 @@ public interface BindingsSpec {
    * @param <T> the type of the binding
    * @return this
    */
-  <T> BindingsSpec bindInstance(T instance);
+  default <T> BindingsSpec bindInstance(T instance) {
+    Class<T> type = Types.cast(instance.getClass());
+    return binder(binder -> binder.bind(type).toInstance(instance));
+  }
+
+  default <T> BindingsSpec multiBindInstance(Class<T> publicType, T instance) {
+    return uncheck(() -> {
+      return multiBinder(publicType, b -> b.addBinding().toInstance(instance));
+    });
+  }
+
+  default <T> BindingsSpec multiBindInstance(TypeLiteral<T> publicType, T instance) {
+    return uncheck(() -> {
+      return multiBinder(publicType, b -> b.addBinding().toInstance(instance));
+    });
+  }
+
+  default <T> BindingsSpec multiBindInstance(TypeToken<T> publicType, T instance) {
+    return uncheck(() -> {
+      return multiBinder(publicType, b -> b.addBinding().toInstance(instance));
+    });
+  }
 
   default <T> BindingsSpec multiBindInstance(T instance) {
-    return uncheck(() -> {
-      Class<T> aClass = Types.cast(instance.getClass());
-      return multiBinder(aClass, b -> b.addBinding().toInstance(instance));
-    });
+    Class<T> type = Types.cast(instance.getClass());
+    return multiBindInstance(type, instance);
   }
 
   /**
@@ -202,10 +255,28 @@ public interface BindingsSpec {
    * @param <T> The public type of the object
    * @return this
    */
-  <T> BindingsSpec provider(Class<T> publicType, Provider<? extends T> provider);
+  default <T> BindingsSpec provider(TypeLiteral<T> publicType, Provider<? extends T> provider) {
+    return binder(b -> b.bind(publicType).toProvider(provider));
+  }
+
+  default <T> BindingsSpec provider(TypeToken<T> publicType, Provider<? extends T> provider) {
+    return provider(GuiceUtil.toTypeLiteral(publicType), provider);
+  }
+
+  default <T> BindingsSpec provider(Class<T> publicType, Provider<? extends T> provider) {
+    return provider(TypeLiteral.get(publicType), provider);
+  }
+
+  default <T> BindingsSpec multiBindProvider(TypeLiteral<T> publicType, Provider<? extends T> provider) {
+    return uncheck(() -> multiBinder(publicType, b -> b.addBinding().toProvider(provider)));
+  }
+
+  default <T> BindingsSpec multiBindProvider(TypeToken<T> publicType, Provider<? extends T> provider) {
+    return multiBindProvider(GuiceUtil.toTypeLiteral(publicType), provider);
+  }
 
   default <T> BindingsSpec multiBindProvider(Class<T> publicType, Provider<? extends T> provider) {
-    return uncheck(() -> multiBinder(publicType, b -> b.addBinding().toProvider(provider)));
+    return multiBindProvider(TypeLiteral.get(publicType), provider);
   }
 
   /**
@@ -216,10 +287,35 @@ public interface BindingsSpec {
    * @param <T> The public type of the object
    * @return this
    */
-  <T> BindingsSpec providerType(Class<T> publicType, Class<? extends Provider<? extends T>> providerType);
+  default <T> BindingsSpec providerType(TypeLiteral<T> publicType, Class<? extends Provider<? extends T>> providerType) {
+    return binder(binder -> binder.bind(publicType).toProvider(providerType));
+  }
+
+  default <T> BindingsSpec providerType(Class<T> publicType, Class<? extends Provider<? extends T>> providerType) {
+    return providerType(TypeLiteral.get(publicType), providerType);
+  }
+
+  default <T> BindingsSpec providerType(TypeToken<T> publicType, Class<? extends Provider<? extends T>> providerType) {
+    return providerType(GuiceUtil.toTypeLiteral(publicType), providerType);
+  }
 
   default <T> BindingsSpec multiBindProviderType(Class<T> publicType, Class<? extends Provider<? extends T>> providerType) {
     return uncheck(() -> multiBinder(publicType, b -> b.addBinding().toProvider(providerType)));
   }
 
+  @Override
+  default <O> RegistrySpec add(TypeToken<? super O> type, O object) {
+    return multiBindInstance(type, object);
+  }
+
+  @SuppressWarnings({"Anonymous2MethodRef", "Convert2Lambda"})
+  @Override
+  default <O> RegistrySpec addLazy(TypeToken<O> type, Supplier<? extends O> supplier) {
+    return multiBindProvider(type, new Provider<O>() {
+      @Override
+      public O get() {
+        return supplier.get();
+      }
+    });
+  }
 }

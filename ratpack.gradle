@@ -28,7 +28,8 @@ buildscript {
     // Force to newer version here.
     classpath 'com.google.guava:guava:18.0'
 
-    classpath "org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.1.0"
+    classpath "org.kt3k.gradle.plugin:coveralls-gradle-plugin:2.3.1"
+    classpath "com.github.ben-manes:gradle-versions-plugin:0.8"
   }
 }
 
@@ -41,8 +42,9 @@ if (!JavaVersion.current().java8Compatible) {
   throw new IllegalStateException("Must be built with Java 8 or higher")
 }
 
-apply plugin: 'artifactory'
-apply plugin: 'com.github.kt3k.coveralls'
+apply plugin: "artifactory"
+apply plugin: "com.github.kt3k.coveralls"
+apply plugin: "com.github.ben-manes.versions"
 
 artifactory {
   contextUrl = 'http://oss.jfrog.org'
@@ -65,13 +67,13 @@ task bintrayPublish << {
   def params = '?params=org=ratpack|repo=maven|package=ratpack'
   def curlUrl = [baseUrl, project.buildNumber, params].join('')
   def curl = ['curl', '-X', 'POST', '-u',
-              /"${ratpackBintrayUser}:${ratpackBintrayApiKey}"/, /"${curlUrl}"/].execute()
+              /"${ratpackBintrayUser}:${ratpackBintrayApiKey}"/, curlUrl].execute()
   logger.info("Received response: ${curl.text}")
 }
 
 allprojects {
   group = "io.ratpack"
-  version = "0.9.15-SNAPSHOT"
+  version = "0.9.17-SNAPSHOT"
 
   apply plugin: "base"
   apply plugin: "idea"
@@ -106,7 +108,7 @@ ext {
     "ratpack-core", "ratpack-groovy", "ratpack-guice", "ratpack-session", "ratpack-test", "ratpack-groovy-test",
     "ratpack-manual", "ratpack-gradle", "ratpack-handlebars", "ratpack-remote", "ratpack-remote-test", "ratpack-jackson",
     "ratpack-codahale-metrics", "ratpack-h2", "ratpack-thymeleaf", "ratpack-rx", "ratpack-hikari", "ratpack-newrelic",
-    "ratpack-pac4j", "ratpack-hystrix", "ratpack-spring-boot", "ratpack-config"
+    "ratpack-pac4j", "ratpack-hystrix", "ratpack-spring-boot"
   ].collect { project(it) }
 
   apiModules = publishedModules.findAll { !(it.name in ["ratpack-manual", "ratpack-gradle"]) }
@@ -252,7 +254,8 @@ task ciZip(type: Zip) {
 }
 
 task stage {
-  dependsOn "clean", ":ratpack-site:installApp"
+  dependsOn ":ratpack-site:prepareDeployment"
+  finalizedBy getTasksByName("clean", true)
 }
 
 task jacocoReport(type: org.gradle.testing.jacoco.tasks.JacocoReport) {

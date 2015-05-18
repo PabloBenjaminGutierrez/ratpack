@@ -23,8 +23,8 @@ import ratpack.api.NonBlocking;
 import ratpack.api.Nullable;
 import ratpack.exec.*;
 import ratpack.func.Action;
+import ratpack.func.Block;
 import ratpack.func.Function;
-import ratpack.func.NoArgAction;
 import ratpack.groovy.handling.GroovyByContentSpec;
 import ratpack.groovy.handling.GroovyByMethodSpec;
 import ratpack.groovy.handling.GroovyContext;
@@ -86,7 +86,7 @@ public class DefaultGroovyContext implements GroovyContext {
 
 
   @Override
-  public void addInterceptor(ExecInterceptor execInterceptor, NoArgAction continuation) throws Exception {
+  public void addInterceptor(ExecInterceptor execInterceptor, Block continuation) throws Exception {
     delegate.addInterceptor(execInterceptor, continuation);
   }
 

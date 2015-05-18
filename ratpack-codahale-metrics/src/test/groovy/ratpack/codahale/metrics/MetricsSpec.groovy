@@ -47,7 +47,7 @@ class MetricsSpec extends RatpackGroovyDslSpec {
   def "can register metrics module"() {
     when:
     bindings {
-      add new CodaHaleMetricsModule(), { }
+      module new CodaHaleMetricsModule(), { }
     }
     handlers { MetricRegistry metrics ->
       handler {
@@ -69,7 +69,7 @@ class MetricsSpec extends RatpackGroovyDslSpec {
 
     and:
     bindings {
-      add new CodaHaleMetricsModule(), { it
+      module new CodaHaleMetricsModule(), { it
         .jmx()
         .csv { it.reportDirectory(reportDirectory.root).reporterInterval(Duration.ofSeconds(1)) }
         .console { it.reporterInterval(Duration.ofSeconds(1)) }
@@ -92,7 +92,7 @@ class MetricsSpec extends RatpackGroovyDslSpec {
       reportDirectory.root.listFiles().length > 0
     }
     polling.within(2) {
-      output.toString().contains("[root]~GET~Request")
+      output.toString().contains("root.get-requests")
     }
 
     cleanup:
@@ -105,7 +105,7 @@ class MetricsSpec extends RatpackGroovyDslSpec {
 
     given:
     bindings {
-      add new CodaHaleMetricsModule(), {}
+      module new CodaHaleMetricsModule(), {}
     }
 
     handlers { MetricRegistry metrics ->
@@ -169,7 +169,7 @@ class MetricsSpec extends RatpackGroovyDslSpec {
 
     given:
     bindings {
-      add new CodaHaleMetricsModule(), {}
+      module new CodaHaleMetricsModule(), {}
       bind AnnotatedMetricService
     }
 
@@ -216,7 +216,7 @@ class MetricsSpec extends RatpackGroovyDslSpec {
 
     given:
     bindings {
-      add new CodaHaleMetricsModule(), {}
+      module new CodaHaleMetricsModule(), {}
       bind AnnotatedMetricService
     }
 
@@ -260,7 +260,7 @@ class MetricsSpec extends RatpackGroovyDslSpec {
 
     given:
     bindings {
-      add new CodaHaleMetricsModule(), {}
+      module new CodaHaleMetricsModule(), {}
       bind AnnotatedMetricService
     }
 
@@ -286,7 +286,7 @@ class MetricsSpec extends RatpackGroovyDslSpec {
 
     given:
     bindings {
-      add new CodaHaleMetricsModule(), { it.jmx() }
+      module new CodaHaleMetricsModule(), { it.jmx() }
     }
 
     handlers { MetricRegistry metrics ->
@@ -312,9 +312,9 @@ class MetricsSpec extends RatpackGroovyDslSpec {
     2.times { get("foo/bar") }
 
     then:
-    1 * reporter.onTimerAdded("[root]~GET~Request", !null)
-    1 * reporter.onTimerAdded("[foo]~GET~Request", !null)
-    1 * reporter.onTimerAdded("[foo][bar]~GET~Request", !null)
+    1 * reporter.onTimerAdded("root.get-requests", !null)
+    1 * reporter.onTimerAdded("foo.get-requests", !null)
+    1 * reporter.onTimerAdded("foo.bar.get-requests", !null)
   }
 
   def "can collect jvm metrics"() {
@@ -322,7 +322,7 @@ class MetricsSpec extends RatpackGroovyDslSpec {
 
     given:
     bindings {
-      add new CodaHaleMetricsModule(), { it.jvmMetrics(true) }
+      module new CodaHaleMetricsModule(), { it.jvmMetrics(true) }
     }
 
     handlers { MetricRegistry metrics ->
@@ -345,7 +345,7 @@ class MetricsSpec extends RatpackGroovyDslSpec {
   def "can use metrics endpoint"() {
     given:
     bindings {
-      add new CodaHaleMetricsModule(), { it.webSocket { it.reporterInterval(Duration.ofSeconds(1)) } }
+      module new CodaHaleMetricsModule(), { it.webSocket { it.reporterInterval(Duration.ofSeconds(1)).excludeFilter("2xx-responses") } }
     }
     handlers { MetricRegistry metrics ->
 
@@ -374,56 +374,56 @@ class MetricsSpec extends RatpackGroovyDslSpec {
     client.connectBlocking()
 
     then:
-    new JsonSlurper().parseText(client.received.poll(2, TimeUnit.SECONDS)).with {
+    with(new JsonSlurper().parseText(client.received.poll(2, TimeUnit.SECONDS))) {
       timers.size() == 2
-      timers[0].name == "[admin][metrics-report]~GET~Request"
-      timers[0].count == 0
-      timers[1].name == "[root]~GET~Request"
-      timers[1].count == 2
+      timers.containsKey("admin.metrics-report.get-requests")
+      timers["admin.metrics-report.get-requests"].count == 0
+      timers.containsKey("root.get-requests")
+      timers["root.get-requests"].count == 2
 
       gauges.size() == 1
-      gauges[0].name == "fooGauge"
-      gauges[0].value == 2
+      gauges.containsKey("fooGauge")
+      gauges["fooGauge"].value == 2
 
       meters.size() == 1
-      meters[0].name == "fooMeter"
-      meters[0].count == 2
+      meters.containsKey("fooMeter")
+      meters["fooMeter"].count == 2
 
       counters.size() == 1
-      counters[0].name == "fooCounter"
-      counters[0].count == 2
+      counters.containsKey("fooCounter")
+      counters["fooCounter"].count == 2
 
       histograms.size() == 1
-      histograms[0].name == "fooHistogram"
-      histograms[0].count == 2
+      histograms.containsKey("fooHistogram")
+      histograms["fooHistogram"].count == 2
     }
 
     when:
     2.times { getText() }
 
     then:
-    new JsonSlurper().parseText(client.received.poll(2, TimeUnit.SECONDS)).with {
+    with(new JsonSlurper().parseText(client.received.poll(2, TimeUnit.SECONDS))) {
       timers.size() == 2
-      timers[0].name == "[admin][metrics-report]~GET~Request"
-      timers[0].count == 0
-      timers[1].name == "[root]~GET~Request"
-      timers[1].count == 4
+      timers.containsKey("admin.metrics-report.get-requests")
+      timers["admin.metrics-report.get-requests"].count == 0
+      timers.containsKey("root.get-requests")
+      timers["root.get-requests"].count == 4
 
       gauges.size() == 1
-      gauges[0].name == "fooGauge"
-      gauges[0].value == 2
+      gauges.containsKey("fooGauge")
+      gauges["fooGauge"].value == 2
 
       meters.size() == 1
-      meters[0].name == "fooMeter"
-      meters[0].count == 4
+      meters.containsKey("fooMeter")
+      meters["fooMeter"].count == 4
 
       counters.size() == 1
-      counters[0].name == "fooCounter"
-      counters[0].count == 4
+      counters.containsKey("fooCounter")
+      counters["fooCounter"].count == 4
 
       histograms.size() == 1
-      histograms[0].name == "fooHistogram"
-      histograms[0].count == 4
+      histograms.containsKey("fooHistogram")
+      histograms["fooHistogram"].count == 4
     }
 
     cleanup:
@@ -440,7 +440,7 @@ class MetricsSpec extends RatpackGroovyDslSpec {
 
     given:
     bindings {
-      add new CodaHaleMetricsModule(), {}
+      module new CodaHaleMetricsModule(), {}
     }
 
     handlers {MetricRegistry metrics ->
@@ -459,7 +459,7 @@ class MetricsSpec extends RatpackGroovyDslSpec {
     2.times { get("foo") }
 
     then:
-    1 * reporter.onTimerAdded("[foo]~GET~Blocking", !null) >> { arguments ->
+    1 * reporter.onTimerAdded("foo.get-blocking", !null) >> { arguments ->
       blockingTimer = arguments[1]
     }
     blockingTimer.count == 2
@@ -474,37 +474,30 @@ class MetricsSpec extends RatpackGroovyDslSpec {
 
     and:
     bindings {
-      add new CodaHaleMetricsModule(), {
-        it.console { it.reporterInterval(Duration.ofSeconds(1)).filter(".*foo.*") }
-        it.jmx { it.filter(".*foo.*") }
-        it.csv { it.reportDirectory(reportDirectory.root).reporterInterval(Duration.ofSeconds(1)).filter(".*foo.*") }
+      module new CodaHaleMetricsModule(), {
+        it.console { it.reporterInterval(Duration.ofSeconds(1)).includeFilter(".*ar.*").excludeFilter(".*bar.*") }
+        it.jmx { it.includeFilter(".*ar.*") }
+        it.csv { it.reportDirectory(reportDirectory.root).reporterInterval(Duration.ofSeconds(1)).includeFilter(".*foo.*") }
       }
     }
 
     handlers { MetricRegistry metrics ->
-      prefix("foo") {
-        handler {
-          render ""
-        }
-      }
-      prefix("bar") {
-        handler {
-          render ""
-        }
-      }
+      handler { render "" }
     }
 
     when:
     get("foo")
     get("bar")
+    get("tar")
 
     then:
     polling.within(2) {
-      output.toString().contains("[foo]~GET~Request")
+      output.toString().contains("tar.get-requests")
     }
 
     and:
-    !output.toString().contains("[bar]~GET~Request")
+    !output.toString().contains("foo.get-requests")
+    !output.toString().contains("bar.get-requests")
 
     and:
     reportDirectory.root.listFiles().length == 1
@@ -512,5 +505,67 @@ class MetricsSpec extends RatpackGroovyDslSpec {
 
     cleanup:
     System.out = origOut
+  }
+
+  def "can apply custom groups for request timer metrics"() {
+    def reporter = Mock(MetricRegistryListener)
+
+    given:
+    bindings {
+      module new CodaHaleMetricsModule(), {
+        it.requestMetricGroups(["bar":"bar/.*", "foo":"foo/.*", "f":"f.*"])
+      }
+    }
+
+    handlers { MetricRegistry metrics ->
+      metrics.addListener(reporter)
+      handler { render "" }
+    }
+
+    when:
+    get("foo/1")
+    get("foo/2/tar")
+    get("far")
+    get("foo/3/bar")
+    get("tar?id=3")
+
+    then:
+    1 * reporter.onTimerAdded("foo.get-requests", !null)
+    1 * reporter.onTimerAdded("f.get-requests", !null)
+    1 * reporter.onTimerAdded("tar.get-requests", !null)
+  }
+
+  def "can collect status code metrics"() {
+    def reporter = Mock(MetricRegistryListener)
+    def twoxxCounter
+    def fourxxCounter
+
+    given:
+    bindings {
+      module new CodaHaleMetricsModule(), {}
+    }
+
+    handlers { MetricRegistry metrics ->
+      metrics.addListener(reporter)
+      handler("foo") { render "" }
+      handler("bar") {
+        clientError(401)
+      }
+    }
+
+    when:
+    get("foo")
+    get("bar")
+    get("tar")
+
+    then:
+    1 * reporter.onCounterAdded("2xx-responses", !null) >> { arguments ->
+      twoxxCounter = arguments[1]
+    }
+    1 * reporter.onCounterAdded("4xx-responses", !null) >> { arguments ->
+      fourxxCounter = arguments[1]
+    }
+    twoxxCounter.count == 1
+    fourxxCounter.count == 2
   }
 }

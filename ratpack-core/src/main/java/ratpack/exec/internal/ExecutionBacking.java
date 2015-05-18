@@ -16,56 +16,71 @@
 
 package ratpack.exec.internal;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import io.netty.channel.EventLoop;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import ratpack.exec.*;
 import ratpack.func.Action;
-import ratpack.func.NoArgAction;
+import ratpack.func.BiAction;
+import ratpack.func.Block;
+import ratpack.registry.RegistrySpec;
 
 import java.util.*;
-import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.function.Consumer;
 
 public class ExecutionBacking {
 
   final static Logger LOGGER = LoggerFactory.getLogger(Execution.class);
 
-  public static final boolean TRACE = Boolean.getBoolean("ratpack.execution.trace");
-  private final static ThreadLocal<ExecutionBacking> THREAD_BINDING = new ThreadLocal<>();
+  public final static ThreadLocal<ExecutionBacking> THREAD_BINDING = new ThreadLocal<>();
 
-  // package access to allow direct field access by inners
-  final List<ExecInterceptor> interceptors = Lists.newLinkedList();
+  private final ImmutableList<? extends ExecInterceptor> globalInterceptors;
+  private final ImmutableList<? extends ExecInterceptor> registryInterceptors;
+  private List<ExecInterceptor> adhocInterceptors;
 
   // The “stream” must be a concurrent safe collection because stream events can arrive from other threads
   // All other collections do not need to be concurrent safe because they are only accessed on the event loop
-  Queue<Deque<NoArgAction>> stream = new ConcurrentLinkedQueue<>();
+  Queue<Deque<Block>> stream = new ConcurrentLinkedQueue<>();
 
   private final EventLoop eventLoop;
-  private final List<AutoCloseable> closeables = Lists.newLinkedList();
-  private final Action<? super Throwable> onError;
+  private final List<AutoCloseable> closeables = Lists.newArrayList();
+  private final BiAction<? super Execution, ? super Throwable> onError;
   private final Action<? super Execution> onComplete;
-
 
   private volatile boolean done;
   private final Execution execution;
 
-  public ExecutionBacking(ExecController controller, EventLoop eventLoop, Optional<StackTraceElement[]> startTrace, Action<? super Execution> action, Action<? super Throwable> onError, Action<? super Execution> onComplete) {
+  public ExecutionBacking(
+    ExecController controller,
+    EventLoop eventLoop,
+    ImmutableList<? extends ExecInterceptor> globalInterceptors,
+    Action<? super RegistrySpec> registry,
+    Action<? super Execution> action,
+    BiAction<? super Execution, ? super Throwable> onError,
+    Action<? super Execution> onComplete
+  ) throws Exception {
     this.eventLoop = eventLoop;
     this.onError = onError;
     this.onComplete = onComplete;
     this.execution = new DefaultExecution(eventLoop, controller, closeables);
 
-    Deque<NoArgAction> event = Lists.newLinkedList();
+    registry.execute(execution);
+
+    this.registryInterceptors = ImmutableList.copyOf(execution.getAll(ExecInterceptor.class));
+    this.globalInterceptors = globalInterceptors;
+
+    Deque<Block> event = new ArrayDeque<>();
     //noinspection RedundantCast
     event.add((UserCode) () -> action.execute(execution));
     stream.add(event);
 
-    Deque<NoArgAction> doneEvent = Lists.newLinkedList();
+    Deque<Block> doneEvent = new ArrayDeque<>(1);
     doneEvent.add(() -> done = true);
     stream.add(doneEvent);
+
     drain();
   }
 
@@ -84,7 +99,7 @@ public class ExecutionBacking {
 
 
   // Marker interface used to detect user code vs infrastructure code, for error handling and interception
-  public interface UserCode extends NoArgAction {
+  public interface UserCode extends Block {
   }
 
   public Execution getExecution() {
@@ -95,15 +110,18 @@ public class ExecutionBacking {
     return eventLoop;
   }
 
-  public List<ExecInterceptor> getInterceptors() {
-    return interceptors;
+  public void addInterceptor(ExecInterceptor interceptor) {
+    if (adhocInterceptors == null) {
+      adhocInterceptors = Lists.newArrayList();
+    }
+    adhocInterceptors.add(interceptor);
   }
 
   public class StreamHandle {
-    final Queue<Deque<NoArgAction>> parent;
-    final Queue<Deque<NoArgAction>> stream;
+    final Queue<Deque<Block>> parent;
+    final Queue<Deque<Block>> stream;
 
-    private StreamHandle(Queue<Deque<NoArgAction>> parent, Queue<Deque<NoArgAction>> stream) {
+    private StreamHandle(Queue<Deque<Block>> parent, Queue<Deque<Block>> stream) {
       this.parent = parent;
       this.stream = stream;
     }
@@ -120,38 +138,56 @@ public class ExecutionBacking {
       });
     }
 
-    private void streamEvent(NoArgAction s) {
-      Deque<NoArgAction> event = Lists.newLinkedList();
+    public void complete() {
+      streamEvent(() -> ExecutionBacking.this.stream = this.parent);
+    }
+
+    private void streamEvent(Block s) {
+      Deque<Block> event = new ArrayDeque<>();
       event.add(s);
       stream.add(event);
       drain();
     }
   }
 
-  public void streamSubscribe(Consumer<? super StreamHandle> consumer) {
+  public void streamSubscribe(Action<? super StreamHandle> consumer) {
+    if (done) {
+      throw new ExecutionException("this execution has completed (you may be trying to use a promise in a cleanup method)");
+    }
+
+    if (stream.isEmpty()) {
+      stream.add(new ArrayDeque<>());
+    }
+
     stream.element().add(() -> {
-      Queue<Deque<NoArgAction>> parent = stream;
-      stream = new ConcurrentLinkedDeque<>();
-      stream.add(Lists.newLinkedList());
+      Queue<Deque<Block>> parent = stream;
+      stream = new ConcurrentLinkedQueue<>();
+      stream.add(new ArrayDeque<>());
       StreamHandle handle = new StreamHandle(parent, stream);
-      consumer.accept(handle);
+      consumer.execute(handle);
     });
 
     drain();
   }
 
+  public void eventLoopDrain() {
+    eventLoop.execute(this::drain);
+  }
+
   private void drain() {
+    if (done) {
+      return;
+    }
+
     ExecutionBacking threadBoundExecutionBacking = THREAD_BINDING.get();
     if (this.equals(threadBoundExecutionBacking)) {
       return;
     }
 
-    if (done) {
-      throw new ExecutionException("execution is complete");
-    }
-
     if (!eventLoop.inEventLoop() || threadBoundExecutionBacking != null) {
-      eventLoop.execute(this::drain);
+      if (!done) {
+        eventLoop.execute(this::drain);
+      }
       return;
     }
 
@@ -162,7 +198,7 @@ public class ExecutionBacking {
           return;
         }
 
-        NoArgAction segment = stream.element().poll();
+        Block segment = stream.element().poll();
         if (segment == null) {
           stream.remove();
           if (stream.isEmpty()) {
@@ -176,13 +212,13 @@ public class ExecutionBacking {
         } else {
           if (segment instanceof UserCode) {
             try {
-              intercept(ExecInterceptor.ExecType.COMPUTE, interceptors, segment);
+              intercept(ExecInterceptor.ExecType.COMPUTE, segment);
             } catch (final Throwable e) {
-              Deque<NoArgAction> event = stream.element();
+              Deque<Block> event = stream.element();
               event.clear();
               event.addFirst(() -> {
                 try {
-                  onError.execute(e);
+                  onError.execute(execution, e);
                 } catch (final Throwable errorHandlerException) {
                   //noinspection RedundantCast
                   stream.element().addFirst((UserCode) () -> {
@@ -205,6 +241,21 @@ public class ExecutionBacking {
     }
   }
 
+  private void intercept(ExecInterceptor.ExecType execType, Block segment) throws Exception {
+    Iterator<? extends ExecInterceptor> iterator = getAllInterceptors().iterator();
+    intercept(execType, iterator, segment);
+  }
+
+  public Iterable<? extends ExecInterceptor> getAllInterceptors() {
+    Iterable<? extends ExecInterceptor> interceptors;
+    if (adhocInterceptors == null) {
+      interceptors = Iterables.concat(globalInterceptors, registryInterceptors);
+    } else {
+      interceptors = Iterables.concat(globalInterceptors, registryInterceptors, adhocInterceptors);
+    }
+    return interceptors;
+  }
+
   private void done() {
     try {
       onComplete.execute(getExecution());
@@ -221,17 +272,9 @@ public class ExecutionBacking {
     }
   }
 
-  public void intercept(final ExecInterceptor.ExecType execType, final List<ExecInterceptor> interceptors, NoArgAction action) throws Exception {
-    if (interceptors.isEmpty()) {
-      action.execute();
-    } else {
-      nextInterceptor(execution, action, execType, interceptors.iterator());
-    }
-  }
-
-  private static void nextInterceptor(Execution execution, NoArgAction action, ExecInterceptor.ExecType type, Iterator<ExecInterceptor> interceptors) throws Exception {
+  public void intercept(final ExecInterceptor.ExecType execType, final Iterator<? extends ExecInterceptor> interceptors, Block action) throws Exception {
     if (interceptors.hasNext()) {
-      interceptors.next().intercept(execution, type, () -> nextInterceptor(execution, action, type, interceptors));
+      interceptors.next().intercept(execution, execType, () -> intercept(execType, interceptors, action));
     } else {
       action.execute();
     }

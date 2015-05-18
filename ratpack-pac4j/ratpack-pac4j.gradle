@@ -22,7 +22,7 @@ configurations {
   ["testCompile", "testRuntime"].each { configurationName ->
     getByName(configurationName).resolutionStrategy {
       force "org.apache.httpcomponents:httpclient:4.3.1", "org.apache.httpcomponents:httpmime:4.3.1"
-      force "com.google.guava:guava:16.0"
+      force "com.google.guava:guava:${commonVersions.guava}"
     }
   }
 }
@@ -40,7 +40,7 @@ dependencies {
   }
   testCompile project(":ratpack-groovy-test")
   testCompile commonDependencies.spock
-  testCompile 'org.eclipse.jetty.aggregate:jetty-all:9.1.3.v20140225'
+  testCompile 'org.eclipse.jetty.aggregate:jetty-all:9.2.10.v20150310'
 }
 
 ext.apiLinks = [

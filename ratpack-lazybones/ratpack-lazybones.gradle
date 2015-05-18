@@ -23,7 +23,7 @@ buildscript {
   }
 
   dependencies {
-    classpath "uk.co.cacoethes:lazybones-gradle:1.2.2"
+    classpath "uk.co.cacoethes:lazybones-gradle:1.2.3"
   }
 }
 
@@ -44,7 +44,7 @@ ext {
 }
 
 task replaceTemplateTokens(type: Sync) {
-  def tokens = [version: version]
+  def tokens = [version: version, slf4jVersion: commonVersions.slf4j, spockVersion: commonVersions.spock]
   inputs.properties(tokens)
 
   from('src/templates/ratpack') {

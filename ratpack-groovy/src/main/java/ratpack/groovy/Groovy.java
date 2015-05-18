@@ -16,7 +16,6 @@
 
 package ratpack.groovy;
 
-import com.google.common.base.StandardSystemProperty;
 import com.google.common.collect.ImmutableMap;
 import groovy.lang.Closure;
 import groovy.lang.DelegatesTo;
@@ -28,19 +27,22 @@ import ratpack.api.Nullable;
 import ratpack.file.FileSystemBinding;
 import ratpack.func.Action;
 import ratpack.func.Function;
-import ratpack.groovy.guice.GroovyBindingsSpec;
-import ratpack.groovy.guice.internal.DefaultGroovyBindingsSpec;
 import ratpack.groovy.handling.GroovyChain;
 import ratpack.groovy.handling.GroovyContext;
 import ratpack.groovy.handling.internal.ClosureBackedHandler;
 import ratpack.groovy.handling.internal.DefaultGroovyChain;
 import ratpack.groovy.handling.internal.DefaultGroovyContext;
 import ratpack.groovy.handling.internal.GroovyDslChainActionTransformer;
-import ratpack.groovy.internal.*;
+import ratpack.groovy.internal.ClosureInvoker;
+import ratpack.groovy.internal.ClosureUtil;
+import ratpack.groovy.internal.GroovyVersionCheck;
+import ratpack.groovy.internal.ScriptBackedHandler;
+import ratpack.groovy.internal.capture.*;
 import ratpack.groovy.script.ScriptNotFoundException;
 import ratpack.groovy.template.Markup;
 import ratpack.groovy.template.MarkupTemplate;
 import ratpack.groovy.template.TextTemplate;
+import ratpack.guice.BindingsSpec;
 import ratpack.guice.Guice;
 import ratpack.handling.Chain;
 import ratpack.handling.Context;
@@ -120,14 +122,14 @@ public abstract class Groovy {
    *
    * @see ratpack.groovy.Groovy#ratpack(groovy.lang.Closure)
    */
-  public static interface Ratpack {
+  public interface Ratpack {
 
     /**
-     * Registers the closure used to configure the {@link ratpack.groovy.guice.GroovyBindingsSpec} that will back the application.
+     * Registers the closure used to configure the {@link ratpack.guice.BindingsSpec} that will back the application.
      *
-     * @param configurer The configuration closure, delegating to {@link ratpack.groovy.guice.GroovyBindingsSpec}
+     * @param configurer The configuration closure, delegating to {@link ratpack.guice.BindingsSpec}
      */
-    void bindings(@DelegatesTo(value = GroovyBindingsSpec.class, strategy = Closure.DELEGATE_FIRST) Closure<?> configurer);
+    void bindings(@DelegatesTo(value = BindingsSpec.class, strategy = Closure.DELEGATE_FIRST) Closure<?> configurer);
 
     /**
      * Registers the closure used to build the handler chain of the application.
@@ -167,16 +169,19 @@ public abstract class Groovy {
     }
 
     public static Action<? super RatpackServerSpec> app(Path script) {
-      return b -> doApp(b, false, script.getParent(), script);
+      return app(false, script);
+    }
+
+    public static Action<? super RatpackServerSpec> app(boolean compileStatic, Path script) {
+      return b -> doApp(b, compileStatic, script.getParent(), script);
     }
 
     public static Action<? super RatpackServerSpec> app(boolean staticCompile, String... scriptPaths) {
       return b -> {
-        String workingDir = StandardSystemProperty.USER_DIR.value();
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
 
         BaseDirFinder.Result baseDirResult = Arrays.stream(scriptPaths)
-          .map(scriptPath -> BaseDirFinder.find(workingDir, classLoader, scriptPath))
+          .map(scriptPath -> BaseDirFinder.find(classLoader, scriptPath))
           .filter(Optional::isPresent)
           .map(Optional::get)
           .findFirst()
@@ -191,13 +196,13 @@ public abstract class Groovy {
     private static void doApp(RatpackServerSpec definition, boolean staticCompile, Path baseDir, Path scriptFile) throws Exception {
       String script = IoUtils.read(UnpooledByteBufAllocator.DEFAULT, scriptFile).toString(CharsetUtil.UTF_8);
 
-      RatpackDslClosures closures = new FullRatpackDslCapture(staticCompile).apply(scriptFile, script);
+      RatpackDslClosures closures = new RatpackDslScriptCapture(staticCompile, RatpackDslBacking::new).apply(scriptFile, script);
       definition.serverConfig(ClosureUtil.configureDelegateFirstAndReturn(loadPropsIfPresent(ServerConfig.baseDir(baseDir), baseDir), closures.getServerConfig()));
 
       definition.registry(r -> {
         return Guice.registry(bindingsSpec -> {
           bindingsSpec.bindInstance(new FileBackedReloadInformant(scriptFile));
-          ClosureUtil.configureDelegateFirst(new DefaultGroovyBindingsSpec(bindingsSpec), closures.getBindings());
+          ClosureUtil.configureDelegateFirst(bindingsSpec, closures.getBindings());
         }).apply(r);
       });
 
@@ -207,7 +212,7 @@ public abstract class Groovy {
     }
 
     private static ServerConfig.Builder loadPropsIfPresent(ServerConfig.Builder serverConfigBuilder, Path baseDir) {
-      Path propsFile = baseDir.resolve(ServerConfig.Builder.DEFAULT_PROPERTIES_FILE_NAME);
+      Path propsFile = baseDir.resolve(ServerConfig.Builder.DEFAULT_BASE_DIR_MARKER_FILE_PATH);
       if (Files.exists(propsFile)) {
         serverConfigBuilder.props(propsFile);
       }
@@ -227,9 +232,11 @@ public abstract class Groovy {
       return r -> {
         Path scriptFile = r.get(FileSystemBinding.class).file(scriptPath);
         boolean development = r.get(ServerConfig.class).isDevelopment();
-        return new ScriptBackedHandler(scriptFile, development, new RatpackDslCapture<>(staticCompile, HandlersOnly::new, h ->
-          Groovy.chain(r, h.handlers)
-        ));
+        return new ScriptBackedHandler(scriptFile, development,
+          new RatpackDslScriptCapture(staticCompile, HandlersOnly::new)
+            .andThen(RatpackDslClosures::getHandlers)
+            .andThen(c -> Groovy.chain(r, c))
+        );
       };
     }
 
@@ -246,50 +253,12 @@ public abstract class Groovy {
       return r -> {
         Path scriptFile = r.get(FileSystemBinding.class).file(scriptPath);
         String script = IoUtils.read(UnpooledByteBufAllocator.DEFAULT, scriptFile).toString(CharsetUtil.UTF_8);
-        Closure<?> bindingsClosure = new RatpackDslCapture<>(staticCompile, BindingsOnly::new, b -> b.bindings).apply(scriptFile, script);
+        Closure<?> bindingsClosure = new RatpackDslScriptCapture(staticCompile, BindingsOnly::new).andThen(RatpackDslClosures::getBindings).apply(scriptFile, script);
         return Guice.registry(bindingsSpec -> {
           bindingsSpec.bindInstance(new FileBackedReloadInformant(scriptFile));
-          ClosureUtil.configureDelegateFirst(new DefaultGroovyBindingsSpec(bindingsSpec), bindingsClosure);
+          ClosureUtil.configureDelegateFirst(bindingsSpec, bindingsClosure);
         }).apply(r);
       };
-    }
-  }
-
-  private static class HandlersOnly implements Ratpack {
-    private Closure<?> handlers = ClosureUtil.noop();
-
-    @Override
-    public void bindings(Closure<?> configurer) {
-      throw new IllegalStateException("bindings {} not supported for this script");
-    }
-
-    @Override
-    public void handlers(Closure<?> configurer) {
-      this.handlers = configurer;
-    }
-
-    @Override
-    public void serverConfig(Closure<?> configurer) {
-      throw new IllegalStateException("serverConfig {} not supported for this script");
-    }
-  }
-
-  private static class BindingsOnly implements Ratpack {
-    private Closure<?> bindings = ClosureUtil.noop();
-
-    @Override
-    public void bindings(Closure<?> configurer) {
-      this.bindings = configurer;
-    }
-
-    @Override
-    public void handlers(Closure<?> configurer) {
-      throw new IllegalStateException("handlers {} not supported for this script");
-    }
-
-    @Override
-    public void serverConfig(Closure<?> configurer) {
-      throw new IllegalStateException("serverConfig {} not supported for this script");
     }
   }
 

@@ -19,25 +19,26 @@ package ratpack.logging;
 import org.slf4j.MDC;
 import ratpack.exec.ExecInterceptor;
 import ratpack.exec.Execution;
-import ratpack.func.NoArgAction;
+import ratpack.func.Block;
 import ratpack.util.Types;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * An execution interceptor that adds support for Slf4j's <a href="http://www.slf4j.org/manual.html#mdc">Mapped Diagnostic Context (MDC) feature</a>.
+ * An execution interceptor that adds support for SLF4J's <a href="http://www.slf4j.org/manual.html#mdc">Mapped Diagnostic Context (MDC) feature</a>.
  * <p>
  * The MDC is a set of key-value pairs (i.e. map) that can be implicitly added to all logging statements within the <em>context</em>.
- * The term “context” here comes from Slf4j's lexicon and does not refer to Ratpack's {@link ratpack.handling.Context}.
+ * The term “context” here comes from SLF4J's lexicon and does not refer to Ratpack's {@link ratpack.handling.Context}.
  * It refers to a logical sequence of execution (e.g. handling of a request).
- * Slf4j's default strategy for MDC is based on a thread-per-request model, which doesn't work for Ratpack applications.
- * This interceptor maps Slf4j's notion of a “context” to Ratpack's notion of an {@link ratpack.exec.Execution “execution”}.
+ * SLF4J's default strategy for MDC is based on a thread-per-request model, which doesn't work for Ratpack applications.
+ * This interceptor maps SLF4J's notion of a “context” to Ratpack's notion of an {@link ratpack.exec.Execution “execution”}.
  * This means that after installing this interceptor, the {@link MDC MDC API} can be used naturally.
  * <p>
- * Please be sure to read the <a href="http://www.slf4j.org/manual.html#mdc">Slf4j manual section on MDC</a>, particularly about how the actual logging implementation being used must support MDC.
+ * Please be sure to read the <a href="http://www.slf4j.org/manual.html#mdc">SLF4J manual section on MDC</a>, particularly about how the actual logging implementation being used must support MDC.
  * If your logging implementation doesn't support MDC (e.g. {@code slf4j-simple}) then all of the methods on the {@link MDC} API become no-ops.
  * <p>
+ * The interceptor should be added to the server registry, so that it automatically is applied to all executions.
  * The following example shows the registration of the interceptor and MDC API usage.
  * <pre class="java">{@code
  * import java.util.List;
@@ -56,23 +57,25 @@ import java.util.Map;
  *   private static final Logger LOGGER = LoggerFactory.getLogger(Example.class);
  *
  *   public static void main(String... args) throws Exception {
- *     EmbeddedApp.fromHandlers(chain -> chain
- *       .handler(ctx -> ctx.addInterceptor(MDCInterceptor.instance(), ctx::next))
- *       .handler(ctx -> {
- *         // Put a value into the MDC
- *         MDC.put("clientIp", ctx.getRequest().getRemoteAddress().getHostText());
- *         // The logging implementation/configuration may inject values from the MDC into log statements
- *         LOGGER.info("about to block");
- *         ctx.blocking(() -> {
- *           // The MDC is carried across asynchronous boundaries by the interceptor
- *           LOGGER.info("blocking");
- *           return "something";
- *         }).then(str -> {
- *           // And back again
- *           LOGGER.info("back from blocking");
- *           ctx.render("ok");
- *         });
- *       })
+ *     EmbeddedApp.of(s -> s
+ *       .registryOf(r -> r.add(MDCInterceptor.instance()))
+ *       .handler(r ->
+ *         ctx -> {
+ *           // Put a value into the MDC
+ *           MDC.put("clientIp", ctx.getRequest().getRemoteAddress().getHostText());
+ *           // The logging implementation/configuration may inject values from the MDC into log statements
+ *           LOGGER.info("about to block");
+ *           ctx.blocking(() -> {
+ *             // The MDC is carried across asynchronous boundaries by the interceptor
+ *             LOGGER.info("blocking");
+ *             return "something";
+ *           }).then(str -> {
+ *             // And back again
+ *             LOGGER.info("back from blocking");
+ *             ctx.render("ok");
+ *           });
+ *         }
+ *       )
  *     ).test(httpClient ->
  *       assertEquals("ok", httpClient.getText())
  *     );
@@ -92,7 +95,7 @@ import java.util.Map;
  * If you wish context to be inherited, you must do so explicitly by capturing the variables you wish to be inherited
  * (i.e. via {@link MDC#get(String)}) as local variables and then add them to the MDC (i.e. via {@link MDC#put(String, String)}) in the forked execution.
  *
- * @see ratpack.exec.ExecControl#addInterceptor(ratpack.exec.ExecInterceptor, ratpack.func.NoArgAction)
+ * @see ratpack.exec.ExecInterceptor
  */
 public class MDCInterceptor implements ExecInterceptor {
 
@@ -110,7 +113,7 @@ public class MDCInterceptor implements ExecInterceptor {
     return INSTANCE;
   }
 
-  public void intercept(Execution execution, ExecType type, NoArgAction continuation) throws Exception {
+  public void intercept(Execution execution, ExecType type, Block continuation) throws Exception {
     MDC.clear();
 
     MDCMap map = execution.maybeGet(MDCMap.class).orElse(null);

@@ -36,6 +36,7 @@ import javax.inject.Inject;
 import javax.inject.Provider;
 import java.io.File;
 import java.time.Duration;
+import java.util.Map;
 import java.util.Optional;
 
 import static com.google.inject.Scopes.SINGLETON;
@@ -55,7 +56,7 @@ import static ratpack.util.Exceptions.uncheck;
  *
  * ratpack {
  *   bindings {
- *     add new CodaHaleMetricsModule(), { it.jmx() }
+ *     module new CodaHaleMetricsModule(), { it.jmx() }
  *   }
  * }
  * </pre>
@@ -69,7 +70,7 @@ import static ratpack.util.Exceptions.uncheck;
  *
  * ratpack {
  *   bindings {
- *     add new CodaHaleMetricsModule(), { it.jmx().console() }
+ *     module new CodaHaleMetricsModule(), { it.jmx().console() }
  *   }
  * }
  * </pre>
@@ -77,7 +78,7 @@ import static ratpack.util.Exceptions.uncheck;
  * <h2>External Configuration</h2>
  * The module can also be configured via external configuration using the
  * <a href="http://www.ratpack.io/manual/current/api/ratpack/config/ConfigData.html" target="_blank">ratpack-config</a> extension.
- * For example, to enable the capturing and reporting of metrics to jmx via an external property file which can be overriden with
+ * For example, to enable the capturing and reporting of metrics to jmx via an external property file which can be overridden with
  * system properties one would write: (Groovy DSL)
  *
  * <pre class="groovy-ratpack-dsl">
@@ -93,17 +94,17 @@ import static ratpack.util.Exceptions.uncheck;
  *       .sysProps()
  *       .build()
  *
- *     addConfig(new CodaHaleMetricsModule(), configData.get("/metrics", CodaHaleMetricsModule.Config))
+ *     moduleConfig(new CodaHaleMetricsModule(), configData.get("/metrics", CodaHaleMetricsModule.Config))
  *   }
  * }
  * </pre>
  *
  * <h2>Metric Collection</h2>
  * <p>
- * By default {@link com.codahale.metrics.Timer} metrics are collected for all requests received.  The module adds a
- * {@link RequestTimingHandler} to the handler chain <b>before</b> any user handlers.  This means that response times do not take any
- * framework overhead into account and purely the amount of time spent in handlers.  It is important that the module is
- * registered first in the modules list to ensure that <b>all</b> handlers are included in the metric.
+ * By default {@link com.codahale.metrics.Timer} metrics are collected for all requests received and {@link Counter} metrics for response codes.
+ * The module adds a {@link RequestTimingHandler} to the handler chain <b>before</b> any user handlers.  This means that response times do not
+ * take any framework overhead into account and purely the amount of time spent in handlers.  It is important that the module is registered first
+ * in the modules list to ensure that <b>all</b> handlers are included in the metric.
  * </p>
  * <p>
  * Additional custom metrics can be registered with the provided {@link MetricRegistry} instance
@@ -118,7 +119,7 @@ import static ratpack.util.Exceptions.uncheck;
  *
  * ratpack {
  *   bindings {
- *     add new CodaHaleMetricsModule(), { it.jmx() }
+ *     module new CodaHaleMetricsModule(), { it.jmx() }
  *   }
  *
  *   handlers { MetricRegistry metricRegistry -&gt;
@@ -147,7 +148,7 @@ public class CodaHaleMetricsModule extends ConfigurableModule<CodaHaleMetricsMod
     public static final Duration DEFAULT_INTERVAL = Duration.ofSeconds(30);
 
     private boolean jvmMetrics;
-
+    private Map<String, String> requestMetricGroups;
     private Optional<Jmx> jmx = Optional.empty();
     private Optional<Console> console = Optional.empty();
     private Optional<WebSocket> webSocket = Optional.empty();
@@ -169,6 +170,34 @@ public class CodaHaleMetricsModule extends ConfigurableModule<CodaHaleMetricsMod
      */
     public Config jvmMetrics(boolean jvmMetrics) {
       this.jvmMetrics = jvmMetrics;
+      return this;
+    }
+
+    /**
+     * A map of regular expressions used to group request metrics.
+     * <p>
+     * The value is a regular expression to test the current request path against for a match.
+     * If matched, the key is the name to use when recording the metric.  Please note that request
+     * paths do not start with a <code>/</code>
+     * <p>
+     * As soon as a match is made against a regular expression no further matches are attempted.
+     * <p>
+     * Should no matches be made the default metric grouping will be used.
+     *
+     * @return the request metric group expressions
+     * @see RequestTimingHandler
+     */
+    public Map<String, String> getRequestMetricGroups() {
+      return requestMetricGroups;
+    }
+
+    /**
+     * Configure the request metric groups
+     * @param requestMetricGroups the request metric groups
+     * @return this
+     */
+    public Config requestMetricGroups(Map<String, String> requestMetricGroups) {
+      this.requestMetricGroups = requestMetricGroups;
       return this;
     }
 
@@ -302,7 +331,8 @@ public class CodaHaleMetricsModule extends ConfigurableModule<CodaHaleMetricsMod
 
     public static class Jmx {
       private boolean enabled = true;
-      private String filter;
+      private String includeFilter;
+      private String excludeFilter;
 
       /**
        * The state of the JMX publisher.
@@ -323,19 +353,42 @@ public class CodaHaleMetricsModule extends ConfigurableModule<CodaHaleMetricsMod
       }
 
       /**
-       * The filter on the reporter.
-       * @return
+       * The include metric filter expression of the reporter.
+       *
+       * @return the include filter
        */
-      public String getFilter() {
-        return filter;
+      public String getIncludeFilter() {
+        return includeFilter;
       }
 
       /**
-       * Set the filter of the reporter.
-       * @param filter the regular expression to match on.
+       * Set the include metric filter expression of the reporter.
+       *
+       * @param includeFilter the regular expression to match on.
+       * @return {@code this}
        */
-      public Jmx filter(String filter) {
-        this.filter = filter;
+      public Jmx includeFilter(String includeFilter) {
+        this.includeFilter = includeFilter;
+        return this;
+      }
+
+      /**
+       * The exclude metric filter expression of the reporter.
+       *
+       * @return the exclude filter
+       */
+      public String getExcludeFilter() {
+        return excludeFilter;
+      }
+
+      /**
+       * Set the exclude metric filter expression of the reporter.
+       *
+       * @param excludeFilter the regular expression to match on.
+       * @return {@code this}
+       */
+      public Jmx excludeFilter(String excludeFilter) {
+        this.excludeFilter = excludeFilter;
         return this;
       }
     }
@@ -343,10 +396,12 @@ public class CodaHaleMetricsModule extends ConfigurableModule<CodaHaleMetricsMod
     public static class Console {
       private Duration reporterInterval = DEFAULT_INTERVAL;
       private boolean enabled = true;
-      private String filter;
+      private String includeFilter;
+      private String excludeFilter;
 
       /**
        * The state of the Console publisher.
+       *
        * @return the state of the Console publisher
        */
       public boolean isEnabled() {
@@ -355,8 +410,9 @@ public class CodaHaleMetricsModule extends ConfigurableModule<CodaHaleMetricsMod
 
       /**
        * Set the state of the Console publisher.
+       *
        * @param enabled True if metrics are published to the console. False otherwise
-       * @return this
+       * @return {@code this}
        */
       public Console enable(boolean enabled) {
         this.enabled = enabled;
@@ -364,19 +420,42 @@ public class CodaHaleMetricsModule extends ConfigurableModule<CodaHaleMetricsMod
       }
 
       /**
-       * The filter on the reporter.
-       * @return
+       * The include metric filter expression of the reporter.
+       *
+       * @return the include filter
        */
-      public String getFilter() {
-        return filter;
+      public String getIncludeFilter() {
+        return includeFilter;
       }
 
       /**
-       * Set the filter of the reporter.
-       * @param filter the regular expression to match on.
+       * Set the include metric filter of the reporter.
+       *
+       * @param includeFilter the regular expression to match on.
+       * @return {@code this}
        */
-      public Console filter(String filter) {
-        this.filter = filter;
+      public Console includeFilter(String includeFilter) {
+        this.includeFilter = includeFilter;
+        return this;
+      }
+
+      /**
+       * The exclude metric filter expression of the reporter.
+       *
+       * @return the exclude filter
+       */
+      public String getExcludeFilter() {
+        return excludeFilter;
+      }
+
+      /**
+       * Set the exclude metric filter expression of the reporter.
+       *
+       * @param excludeFilter the regular expression to match on.
+       * @return {@code this}
+       */
+      public Console excludeFilter(String excludeFilter) {
+        this.excludeFilter = excludeFilter;
         return this;
       }
 
@@ -402,9 +481,12 @@ public class CodaHaleMetricsModule extends ConfigurableModule<CodaHaleMetricsMod
 
     public static class WebSocket {
       private Duration reporterInterval = DEFAULT_INTERVAL;
+      private String includeFilter;
+      private String excludeFilter;
 
       /**
        * The interval between metrics reports.
+       *
        * @return the interval between metrics reports
        */
       public Duration getReporterInterval() {
@@ -415,10 +497,50 @@ public class CodaHaleMetricsModule extends ConfigurableModule<CodaHaleMetricsMod
        * Configure the interval between broadcasts.
        *
        * @param reporterInterval the report interval
-       * @return this
+       * @return {@code this}
        */
       public WebSocket reporterInterval(Duration reporterInterval) {
         this.reporterInterval = reporterInterval;
+        return this;
+      }
+
+      /**
+       * The include metric filter expression of the reporter.
+       *
+       * @return the include filter
+       */
+      public String getIncludeFilter() {
+        return includeFilter;
+      }
+
+      /**
+       * Set the include metric filter of the reporter.
+       *
+       * @param includeFilter the regular expression to match on.
+       * @return {@code this}
+       */
+      public WebSocket includeFilter(String includeFilter) {
+        this.includeFilter = includeFilter;
+        return this;
+      }
+
+      /**
+       * The exclude metric filter expression of the reporter.
+       *
+       * @return the exclude filter
+       */
+      public String getExcludeFilter() {
+        return excludeFilter;
+      }
+
+      /**
+       * Set the exclude metric filter expression of the reporter.
+       *
+       * @param excludeFilter the regular expression to match on.
+       * @return {@code this}
+       */
+      public WebSocket excludeFilter(String excludeFilter) {
+        this.excludeFilter = excludeFilter;
         return this;
       }
     }
@@ -427,10 +549,12 @@ public class CodaHaleMetricsModule extends ConfigurableModule<CodaHaleMetricsMod
       private Duration reporterInterval = DEFAULT_INTERVAL;
       private File reportDirectory;
       private boolean enabled = true;
-      private String filter;
+      private String includeFilter;
+      private String excludeFilter;
 
       /**
        * The state of the CSV publisher.
+       *
        * @return the state of the CSV publisher
        */
       public boolean isEnabled() {
@@ -439,6 +563,7 @@ public class CodaHaleMetricsModule extends ConfigurableModule<CodaHaleMetricsMod
 
       /**
        * Set the state of the CSV publisher.
+       *
        * @param enabled True if metrics are published to CSV. False otherwise
        * @return this
        */
@@ -448,24 +573,48 @@ public class CodaHaleMetricsModule extends ConfigurableModule<CodaHaleMetricsMod
       }
 
       /**
-       * The filter on the reporter.
-       * @return
+       * The include metric filter expression of the reporter.
+       *
+       * @return the include filter
        */
-      public String getFilter() {
-        return filter;
+      public String getIncludeFilter() {
+        return includeFilter;
       }
 
       /**
-       * Set the filter of the reporter.
-       * @param filter the regular expression to match on.
+       * Set the include metric filter expression of the reporter.
+       *
+       * @param includeFilter the regular expression to match on.
+       * @return {@code this}
        */
-      public Csv filter(String filter) {
-        this.filter = filter;
+      public Csv includeFilter(String includeFilter) {
+        this.includeFilter = includeFilter;
+        return this;
+      }
+
+      /**
+       * The exclude metric filter expression of the reporter.
+       *
+       * @return the exclude filter
+       */
+      public String getExcludeFilter() {
+        return excludeFilter;
+      }
+
+      /**
+       * Set the exclude metric filter expression of the reporter.
+       *
+       * @param excludeFilter the regular expression to match on.
+       * @return {@code this}
+       */
+      public Csv excludeFilter(String excludeFilter) {
+        this.excludeFilter = excludeFilter;
         return this;
       }
 
       /**
        * The interval between metrics reports.
+       *
        * @return the interval between metrics reports
        */
       public Duration getReporterInterval() {
@@ -519,7 +668,6 @@ public class CodaHaleMetricsModule extends ConfigurableModule<CodaHaleMetricsMod
     bind(CsvReporter.class).toProvider(CsvReporterProvider.class).in(SINGLETON);
     bind(MetricRegistryPeriodicPublisher.class).in(SINGLETON);
     bind(MetricsBroadcaster.class).in(SINGLETON);
-    bind(MetricRegistryJsonMapper.class).in(SINGLETON);
 
     bind(Startup.class);
     Multibinder.newSetBinder(binder(), HandlerDecorator.class).addBinding().toProvider(HandlerDecoratorProvider.class);
@@ -544,9 +692,9 @@ public class CodaHaleMetricsModule extends ConfigurableModule<CodaHaleMetricsMod
     @Override
     public void onStart(StartEvent event) throws Exception {
       config.getJmx().ifPresent(jmx -> {
-         if (jmx.isEnabled()) {
-           injector.getInstance(JmxReporter.class).start();
-         }
+        if (jmx.isEnabled()) {
+          injector.getInstance(JmxReporter.class).start();
+        }
       });
 
       config.getConsole().ifPresent(console -> {
@@ -571,9 +719,16 @@ public class CodaHaleMetricsModule extends ConfigurableModule<CodaHaleMetricsMod
   }
 
   private static class HandlerDecoratorProvider implements Provider<HandlerDecorator> {
+    private Config config;
+
+    @Inject
+    public HandlerDecoratorProvider(Config config) {
+      this.config = config;
+    }
+
     @Override
     public HandlerDecorator get() {
-      return HandlerDecorator.prepend(new RequestTimingHandler());
+      return HandlerDecorator.prepend(new RequestTimingHandler(config));
     }
   }
 

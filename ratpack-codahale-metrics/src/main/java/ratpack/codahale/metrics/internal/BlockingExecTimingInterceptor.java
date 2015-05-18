@@ -18,25 +18,30 @@ package ratpack.codahale.metrics.internal;
 
 import com.codahale.metrics.MetricRegistry;
 import com.codahale.metrics.Timer;
+import ratpack.codahale.metrics.CodaHaleMetricsModule;
 import ratpack.exec.ExecInterceptor;
 import ratpack.exec.Execution;
-import ratpack.func.NoArgAction;
+import ratpack.func.Block;
 import ratpack.http.Request;
+
+import java.util.Map;
 
 public class BlockingExecTimingInterceptor implements ExecInterceptor {
 
   private final MetricRegistry metricRegistry;
   private final Request request;
+  private final CodaHaleMetricsModule.Config config;
 
-  public BlockingExecTimingInterceptor(MetricRegistry metricRegistry, Request request) {
+  public BlockingExecTimingInterceptor(MetricRegistry metricRegistry, Request request, CodaHaleMetricsModule.Config config) {
     this.metricRegistry = metricRegistry;
     this.request = request;
+    this.config = config;
   }
 
   @Override
-  public void intercept(Execution execution, ExecType type, NoArgAction continuation) throws Exception {
+  public void intercept(Execution execution, ExecType type, Block continuation) throws Exception {
     if (type == ExecType.BLOCKING) {
-      String tag = buildBlockingTimerTag(request.getUri(), request.getMethod().getName());
+      String tag = buildBlockingTimerTag(request.getPath(), request.getMethod().getName());
       Timer.Context timer = metricRegistry.timer(tag).time();
       try {
         continuation.execute();
@@ -48,8 +53,19 @@ public class BlockingExecTimingInterceptor implements ExecInterceptor {
     }
   }
 
-  private String buildBlockingTimerTag(String requestUri, String requestMethod) {
-    return (requestUri.equals("/") ? "[root" : requestUri.replaceFirst("/", "[").replace("/", "][")) + "]~" + requestMethod + "~Blocking";
+  private String buildBlockingTimerTag(String requestPath, String requestMethod) {
+    String tagName = requestPath.equals("") ? "root" : requestPath.replace("/", ".");
+
+    if (config.getRequestMetricGroups() != null) {
+      for (Map.Entry<String, String> metricGrouping : config.getRequestMetricGroups().entrySet()) {
+        if (requestPath.matches(metricGrouping.getValue())) {
+          tagName = metricGrouping.getKey();
+          break;
+        }
+      }
+    }
+
+    return tagName + "." + requestMethod.toLowerCase() + "-blocking";
   }
 
 }

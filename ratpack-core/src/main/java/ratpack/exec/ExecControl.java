@@ -19,7 +19,8 @@ package ratpack.exec;
 import org.reactivestreams.Publisher;
 import ratpack.exec.internal.JustInTimeExecControl;
 import ratpack.func.Action;
-import ratpack.func.NoArgAction;
+import ratpack.func.Block;
+import ratpack.func.Factory;
 import ratpack.stream.TransformablePublisher;
 
 import java.util.concurrent.Callable;
@@ -74,7 +75,7 @@ public interface ExecControl {
    *
    * @return the execution control bound to the current thread
    */
-  public static ExecControl current() throws UnmanagedThreadException {
+  static ExecControl current() throws UnmanagedThreadException {
     return ExecController.require().getControl();
   }
 
@@ -128,7 +129,7 @@ public interface ExecControl {
    * @throws Exception any thrown by {@code continuation}
    * @see ExecInterceptor
    */
-  void addInterceptor(ExecInterceptor execInterceptor, NoArgAction continuation) throws Exception;
+  void addInterceptor(ExecInterceptor execInterceptor, Block continuation) throws Exception;
 
   /**
    * Performs a blocking operation on a separate thread, returning a promise for its value.
@@ -189,6 +190,57 @@ public interface ExecControl {
    */
   default <T> Promise<T> failedPromise(Throwable error) {
     return promise(f -> f.error(error));
+  }
+
+  /**
+   * Executes the given promise producing factory, converting any thrown exception into a failed promise.
+   * <p>
+   * Can be used to wrap execution of promise returning functions that may themselves throw errors.
+   * <pre class="java">{@code
+   * import ratpack.exec.Promise;
+   * import ratpack.exec.ExecControl;
+   * import ratpack.exec.ExecResult;
+   * import ratpack.test.exec.ExecHarness;
+   * import static org.junit.Assert.assertEquals;
+   *
+   * public class Example {
+   *   public static Promise<String> someMethod() throws Exception {
+   *     throw new Exception("bang!");
+   *   }
+   *
+   *   public static void main(String... args) throws Exception {
+   *     ExecResult<String> result = ExecHarness.yieldSingle(e ->
+   *       e.wrap(() -> someMethod())
+   *     );
+   *
+   *     assertEquals("bang!", result.getThrowable().getMessage());
+   *   }
+   * }
+   * }</pre>
+   *
+   * @param factory the promise factory
+   * @param <T> the type of promised value
+   * @return the promise returned by the factory, or a promise for the exception it threw
+   */
+  default <T> Promise<T> wrap(Factory<? extends Promise<T>> factory) {
+    try {
+      return factory.create();
+    } catch (Exception e) {
+      return failedPromise(e);
+    }
+  }
+
+  default void nest(Block nested, Block then) {
+    nest(nested, then, Action.noop());
+  }
+
+  default void nest(Block nested, Block then, Action<? super Throwable> onError) {
+    this.<Void>promise(f -> {
+      nested.execute();
+      f.success(null);
+    })
+      .onError(onError)
+      .then(v -> then.execute());
   }
 
   /**

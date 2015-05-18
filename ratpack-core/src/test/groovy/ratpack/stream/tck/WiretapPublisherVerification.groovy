@@ -24,24 +24,17 @@ import ratpack.stream.Streams
 
 class WiretapPublisherVerification extends PublisherVerification<Integer> {
 
-  public static final long DEFAULT_TIMEOUT_MILLIS = 300L
-  public static final long PUBLISHER_REFERENCE_CLEANUP_TIMEOUT_MILLIS = 1000L
-
   WiretapPublisherVerification() {
-    super(new TestEnvironment(DEFAULT_TIMEOUT_MILLIS), PUBLISHER_REFERENCE_CLEANUP_TIMEOUT_MILLIS)
+    super(new TestEnvironment(300L))
   }
 
   @Override
   Publisher<Integer> createPublisher(long elements) {
     Streams.wiretap(Streams.publish(1..elements), Action.noop())
   }
-  long maxElementsFromPublisher() {
-    1000
-  }
-
 
   @Override
-  Publisher<Integer> createErrorStatePublisher() {
+  Publisher<Integer> createFailedPublisher() {
     return null
   }
 }

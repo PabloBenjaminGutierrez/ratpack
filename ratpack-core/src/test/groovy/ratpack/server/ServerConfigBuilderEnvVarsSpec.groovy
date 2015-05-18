@@ -16,10 +16,13 @@
 
 package ratpack.server
 
+import com.google.common.io.Resources
 import ratpack.server.internal.DefaultServerConfigBuilder
+import ratpack.server.internal.ServerEnvironment
 import spock.lang.Specification
 
 import javax.net.ssl.SSLContext
+import java.nio.file.Paths
 
 class ServerConfigBuilderEnvVarsSpec extends Specification {
 
@@ -44,7 +47,7 @@ class ServerConfigBuilderEnvVarsSpec extends Specification {
 
   def "set property from custom prefix"() {
     given:
-    source['APP_PORT'] = '6060'
+    source['APP_SERVER__PORT'] = '6060'
 
     when:
     def config = builder.env('APP_').build()
@@ -55,8 +58,8 @@ class ServerConfigBuilderEnvVarsSpec extends Specification {
 
   def "multiple sourcees override"() {
     given:
-    source['RATPACK_PORT'] = '5060'
-    source['APP_PORT'] = '8080'
+    source['RATPACK_SERVER__PORT'] = '5060'
+    source['APP_SERVER__PORT'] = '8080'
 
     when:
     def config = builder.env('APP_').env().build()
@@ -71,20 +74,20 @@ class ServerConfigBuilderEnvVarsSpec extends Specification {
     config.port == 8080
   }
 
-  def "malformed port property throws exception"() {
+  def "malformed port property uses default"() {
     given:
     source['RATPACK_PORT'] = 'abcd'
 
     when:
-    builder.env()
+    def config = builder.env().build()
 
     then:
-    thrown NumberFormatException
+    config.port == ServerConfig.DEFAULT_PORT
   }
 
   def "set address"() {
     given:
-    source['RATPACK_ADDRESS'] = 'localhost'
+    source['RATPACK_SERVER__ADDRESS'] = 'localhost'
 
     when:
     def config = builder.env().build()
@@ -95,18 +98,18 @@ class ServerConfigBuilderEnvVarsSpec extends Specification {
 
   def "malformed address property throws exception"() {
     given:
-    source['RATPACK_ADDRESS'] = 'blah'
+    source['RATPACK_SERVER__ADDRESS'] = 'blah'
 
     when:
-    builder.env()
+    builder.env().build()
 
     then:
-    thrown RuntimeException
+    thrown IllegalArgumentException
   }
 
   def "set development"() {
     given:
-    source['RATPACK_DEVELOPMENT'] = 'true'
+    source['RATPACK_SERVER__DEVELOPMENT'] = 'true'
 
     when:
     def config = builder.env().build()
@@ -128,7 +131,7 @@ class ServerConfigBuilderEnvVarsSpec extends Specification {
 
   def "set threads"() {
     given:
-    source['RATPACK_THREADS'] = '10'
+    source['RATPACK_SERVER__THREADS'] = '10'
 
     when:
     def config = builder.env().build()
@@ -137,20 +140,20 @@ class ServerConfigBuilderEnvVarsSpec extends Specification {
     config.threads == 10
   }
 
-  def "malformed threads throws exception"() {
+  def "malformed threads uses default"() {
     given:
-    source['RATPACK_THREADS'] = 'abcd'
+    source['RATPACK_SERVER__THREADS'] = 'abcd'
 
     when:
-    builder.env()
+    def config = builder.env().build()
 
     then:
-    thrown NumberFormatException
+    config.threads == ServerConfig.DEFAULT_THREADS
   }
 
   def "set public address"() {
     given:
-    source['RATPACK_PUBLIC_ADDRESS'] = 'http://ratpack.io'
+    source['RATPACK_SERVER__PUBLIC_ADDRESS'] = 'http://ratpack.io'
 
     when:
     def config = builder.env().build()
@@ -161,7 +164,7 @@ class ServerConfigBuilderEnvVarsSpec extends Specification {
 
   def "set max content length"() {
     given:
-    source['RATPACK_MAX_CONTENT_LENGTH'] = '256'
+    source['RATPACK_SERVER__MAX_CONTENT_LENGTH'] = '256'
 
     when:
     def config = builder.env().build()
@@ -170,29 +173,29 @@ class ServerConfigBuilderEnvVarsSpec extends Specification {
     config.maxContentLength == 256
   }
 
-  def "malformed max content length throws exception"() {
+  def "malformed max content length uses default"() {
     given:
-    source['RATPACK_MAX_CONTENT_LENGTH'] = 'abcd'
+    source['RATPACK_SERVER__MAX_CONTENT_LENGTH'] = 'abcd'
 
     when:
-    builder.env()
+    def config = builder.env().build()
 
     then:
-    thrown NumberFormatException
+    config.maxContentLength == ServerConfig.DEFAULT_MAX_CONTENT_LENGTH
   }
 
   def "set ssl context"() {
     given:
-    String keystoreFile = 'ratpack/launch/internal/keystore.jks'
+    String keystoreFile = Paths.get(Resources.getResource('ratpack/launch/internal/keystore.jks').toURI()).toString()
     String keystorePassword = 'password'
-    source['RATPACK_SSL_KEYSTORE_FILE'] = keystoreFile
-    source['RATPACK_SSL_KEYSTORE_PASSWORD'] = keystorePassword
+    source['RATPACK_SERVER__SSL__KEYSTORE_FILE'] = keystoreFile
+    source['RATPACK_SERVER__SSL__KEYSTORE_PASSWORD'] = keystorePassword
 
     when:
     SSLContext sslContext = builder.env().build().SSLContext
 
     then:
     sslContext
-
   }
+
 }

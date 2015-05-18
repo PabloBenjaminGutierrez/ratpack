@@ -16,45 +16,35 @@
 
 package ratpack.server;
 
+import ratpack.exec.ExecControl;
 import ratpack.registry.Registry;
 
 /**
- * Meta information about a server start event.
+ * A start event.
+ *
+ * @see Service#onStart(StartEvent)
  */
-public class StartEvent {
-
-  private final Registry registry;
-  private final boolean reload;
-
-  private StartEvent(Registry registry, boolean reload) {
-    this.registry = registry;
-    this.reload = reload;
-  }
+public interface StartEvent {
 
   /**
-   * Retrieves the server registry for this instance
-   * @return the server's registry
-   */
-  public Registry getRegistry() {
-    return registry;
-  }
-
-  /**
-   * Indicates if this start event is part of reloading the server.
-   * @return true if this start event is part of a server reload. False otherwise.
-   */
-  public boolean isReload() {
-    return reload;
-  }
-
-  /**
-   * Builder for start events.
+   * The server registry.
    *
-   * @param registry the server registry for this server
-   * @param reload true if this is start event during a server reload
-   * @return a new start event
+   * @return the server registry
    */
-  public static StartEvent build(Registry registry, boolean reload) {
-    return new StartEvent(registry, reload);
-  }
+  Registry getRegistry();
+
+  /**
+   * An execution control.
+   *
+   * @return an execution control
+   */
+  ExecControl getExecControl();
+
+  /**
+   * If the server is starting in response to a reload (during development), as opposed to for the first time.
+   *
+   * @return if the server is starting in response to a reload
+   */
+  boolean isReload();
+
 }

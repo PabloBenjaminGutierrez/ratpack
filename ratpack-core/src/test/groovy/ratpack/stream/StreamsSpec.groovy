@@ -600,4 +600,28 @@ class StreamsSpec extends Specification {
     yieldSingle { publish(1..10).toPromise() }.throwable instanceof IllegalStateException
     yieldSingle { publish([]).toPromise() }.value == null
   }
+
+  def "flatmap"() {
+    when:
+    def result = harness.yield { c ->
+      Streams.publish(["a", "b", "c"]).flatMap { c.promiseOf(it) }.toList()
+    }
+
+    then:
+    result.valueOrThrow == ["a", "b", "c"]
+  }
+
+  def "can filter stream elements"() {
+    given:
+    def p = (1..20).publish().filter { v ->
+      v % 2 == 0
+    }
+
+    when:
+    def s = CollectingSubscriber.subscribe(p)
+    s.subscription.request(Long.MAX_VALUE)
+
+    then:
+    s.received == [2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
+  }
 }

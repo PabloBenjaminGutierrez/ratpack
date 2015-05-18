@@ -2,6 +2,43 @@
 
 This chapter provides instructions on how to get a Ratpack application up and running to play with.
 
+## Using a Groovy script
+
+A Ratpack application can be implemented as a single Groovy script.
+This is a useful way to experiment with Ratpack and Groovy.
+
+First, [install Groovy](http://groovy-lang.org/install.html).
+
+Create the file `ratpack.groovy` with the following content:
+ 
+```language-groovy hello-world-grab
+@Grab('io.ratpack:ratpack-groovy:@ratpack-version@')
+import static ratpack.groovy.Groovy.ratpack
+
+ratpack {
+    handlers {
+        get {
+            render "Hello World!"
+        }
+        get(":name") {
+            render "Hello $pathTokens.name!"
+        }
+    }
+}
+``` 
+
+You can now start the app by running the following on the command line:
+
+```language-bash
+groovy ratpack.groovy
+```
+
+The [`handlers()` method](api/ratpack/groovy/Groovy.Ratpack.html#handlers-groovy.lang.Closure-) takes a closure that delegates to a [`GroovyChain`](api/ratpack/groovy/handling/GroovyChain.html) object.
+The “Groovy Handler Chain DSL” is used to build the response handling strategy.
+
+Changes to the file are live during development.
+You can edit the file, and the changes will take effect on the next request.
+
 ## Using the Gradle plugin(s)
 
 We recommend the use of the [Gradle build system](http:///www.gradle.org) to build Ratpack applications.
@@ -32,7 +69,7 @@ buildscript {
 }
 
 apply plugin: "io.ratpack.ratpack-java"
-apply plugin: "org.gradle.idea"
+apply plugin: "idea"
 
 repositories {
   jcenter()
@@ -130,8 +167,6 @@ For further information on using Ratpack with Groovy, please the [Groovy](groovy
 
 Ratpack's Lazybones templates can be found on [Bintray](https://bintray.com) in the [ratpack/lazybones repository](https://bintray.com/ratpack/lazybones).
 Templates are published with each Ratpack release and template versions are aligned with Ratpack release versions.
-There are different types of Ratpack templates available, listed in the repository.
-See the description of each for details.
 
 See the [Lazybones documentation](https://github.com/pledbrook/lazybones#running-it) for help with installing Lazybones.
 
@@ -158,4 +193,4 @@ cd my-ratpack-app
 ./gradlew run
 ```
 
-Where `x.x.x` is a valid template version.  See the [Bintray template repository](https://bintray.com/ratpack/lazybones/ratpack-template/view) for all available template versions.
+Where `x.x.x` is a valid template version.

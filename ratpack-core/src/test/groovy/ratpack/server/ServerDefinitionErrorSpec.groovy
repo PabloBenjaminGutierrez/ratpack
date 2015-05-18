@@ -18,6 +18,7 @@ package ratpack.server
 
 import ratpack.handling.Handler
 import ratpack.registry.Registries
+import ratpack.server.internal.ServerEnvironment
 import ratpack.test.ApplicationUnderTest
 import ratpack.test.http.TestHttpClient
 import spock.lang.AutoCleanup
@@ -119,7 +120,9 @@ class ServerDefinitionErrorSpec extends Specification {
 
   def "registry build error is not fatal when in development"() {
     given:
-    server = RatpackServer.of { it.registry { throw new IllegalStateException("boom") }.handler {} }
+    server = RatpackServer.of { it.registry {
+      throw new IllegalStateException("boom")
+    }.handler {} }
 
     when:
     server.start()
