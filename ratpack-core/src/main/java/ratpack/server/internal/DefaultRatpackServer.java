@@ -226,7 +226,7 @@ public class DefaultRatpackServer implements RatpackServer {
     Handler ratpackHandler = buildRatpackHandler(definition.getServerConfig(), serverRegistry, definition.getHandlerFactory());
     ratpackHandler = decorateHandler(ratpackHandler, serverRegistry);
 
-    ExecControl execControl = serverRegistry.get(ExecControl.class);
+    ExecControl execControl = execController.getControl();
     Iterator<? extends Service> services = serverRegistry.getAll(Service.class).iterator();
     try {
       executeEvents(services, new DefaultEvent(serverRegistry, execControl, reloading), execControl, Service::onStart, (service, error) -> {
@@ -249,7 +249,8 @@ public class DefaultRatpackServer implements RatpackServer {
   }
 
   private Handler decorateHandler(Handler rootHandler, Registry serverRegistry) throws Exception {
-    for (HandlerDecorator handlerDecorator : serverRegistry.getAll(HANDLER_DECORATOR_TYPE_TOKEN)) {
+    final Iterable<? extends HandlerDecorator> all = serverRegistry.getAll(HANDLER_DECORATOR_TYPE_TOKEN);
+    for (HandlerDecorator handlerDecorator : all) {
       rootHandler = handlerDecorator.decorate(serverRegistry, rootHandler);
     }
     return rootHandler;
@@ -286,7 +287,7 @@ public class DefaultRatpackServer implements RatpackServer {
     if (serverRegistry != null) {
       Iterable<? extends Service> services = serverRegistry.getAll(Service.class);
       Iterator<Service> reverseServices = ImmutableList.copyOf(services).reverse().iterator();
-      ExecControl execControl = serverRegistry.get(ExecControl.class);
+      ExecControl execControl = execController.getControl();
       executeEvents(reverseServices, new DefaultEvent(serverRegistry, execControl, reloading), execControl, Service::onStop, (service, error) ->
           LOGGER.warn("Service '" + service.getName() + "' thrown an exception while stopping.", error)
       );
@@ -356,7 +357,7 @@ public class DefaultRatpackServer implements RatpackServer {
   private <E> void executeEvents(Iterator<? extends Service> services, CountDownLatch latch, AtomicReference<Throwable> error, E event, ExecControl execControl, BiAction<Service, E> action, BiAction<? super Service, ? super Throwable> onError) throws Exception {
     if (services.hasNext()) {
       Service service = services.next();
-      execControl.exec()
+      execControl.fork()
         .onError(t -> {
           try {
             onError.execute(service, t);
@@ -400,7 +401,7 @@ public class DefaultRatpackServer implements RatpackServer {
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, FullHttpRequest msg) throws Exception {
-      execController.getControl().exec().start(e ->
+      execController.getControl().fork().start(e ->
           e.<ChannelHandler>promise(f -> {
             boolean rebuild = false;
 

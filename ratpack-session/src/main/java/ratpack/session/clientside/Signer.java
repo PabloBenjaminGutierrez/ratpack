@@ -17,9 +17,10 @@
 package ratpack.session.clientside;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
 
 public interface Signer {
 
-  public byte[] sign(ByteBuf message);
+  ByteBuf sign(ByteBuf message, ByteBufAllocator byteBufAllocator);
 
 }

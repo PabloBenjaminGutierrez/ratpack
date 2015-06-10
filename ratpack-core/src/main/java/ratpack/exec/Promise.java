@@ -17,11 +17,9 @@
 package ratpack.exec;
 
 import ratpack.exec.internal.CachingUpstream;
+import ratpack.exec.internal.DefaultOperation;
 import ratpack.exec.internal.ExecutionBacking;
-import ratpack.func.Action;
-import ratpack.func.Block;
-import ratpack.func.Function;
-import ratpack.func.Predicate;
+import ratpack.func.*;
 
 import java.util.Objects;
 import java.util.concurrent.Callable;
@@ -268,6 +266,31 @@ public interface Promise<T> {
           }
         })
       )
+    );
+  }
+
+  default <O> Promise<O> next(Promise<O> next) {
+    return flatMap(in -> next);
+  }
+
+  default <O> Promise<Pair<O, T>> left(Promise<O> left) {
+    return flatMap(right -> left.map(value -> Pair.of(value, right)));
+  }
+
+  default <O> Promise<Pair<T, O>> right(Promise<O> right) {
+    return flatMap(left -> right.map(value -> Pair.of(left, value)));
+  }
+
+  default Operation operation() {
+    return operation(Action.noop());
+  }
+
+  default Operation operation(Action<? super T> action) {
+    return new DefaultOperation(
+      map(t -> {
+        action.execute(t);
+        return null;
+      })
     );
   }
 
@@ -822,7 +845,7 @@ public interface Promise<T> {
    *     int numJobs = 1000;
    *     int maxAtOnce = 10;
    *
-   *     ExecResult<Integer> result = ExecHarness.yieldSingle(c -> {
+   *     ExecResult<Integer> result = ExecHarness.yieldSingle(exec -> {
    *       AtomicInteger maxConcurrent = new AtomicInteger();
    *       AtomicInteger active = new AtomicInteger();
    *       AtomicInteger done = new AtomicInteger();
@@ -830,22 +853,22 @@ public interface Promise<T> {
    *       Throttle throttle = Throttle.ofSize(maxAtOnce);
    *
    *       // Launch numJobs forked executions, and return the maximum number that were executing at any given time
-   *       return c.promise(f -> {
+   *       return exec.promise(outerFulfiller -> {
    *         for (int i = 0; i < numJobs; i++) {
-   *           c.exec().start(e2 ->
-   *             c
-   *               .<Integer>promise(f2 -> {
-   *                 int activeNow = active.incrementAndGet();
-   *                 int maxConcurrentVal = maxConcurrent.updateAndGet(m -> Math.max(m, activeNow));
-   *                 active.decrementAndGet();
-   *                 f2.success(maxConcurrentVal);
-   *               })
-   *               .throttled(throttle) // limit concurrency
-   *               .then(max -> {
-   *                 if (done.incrementAndGet() == numJobs) {
-   *                   f.success(max);
-   *                 }
-   *               }));
+   *           exec.fork().start(forkedExec ->
+   *             forkedExec.<Integer>promise(innerFulfiller -> {
+   *               int activeNow = active.incrementAndGet();
+   *               int maxConcurrentVal = maxConcurrent.updateAndGet(m -> Math.max(m, activeNow));
+   *               active.decrementAndGet();
+   *               innerFulfiller.success(maxConcurrentVal);
+   *             })
+   *             .throttled(throttle) // limit concurrency
+   *             .then(max -> {
+   *               if (done.incrementAndGet() == numJobs) {
+   *                 outerFulfiller.success(max);
+   *               }
+   *             })
+   *           );
    *         }
    *       });
    *     });
